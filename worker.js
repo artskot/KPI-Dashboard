@@ -93,13 +93,9 @@ const ADAPTERS = {
     async status(env, h) {
       const t = await h.getTokens();
       if (!t || !t.access_token) return { connected: false };
-      try {
-        const tenant = await xeroTenant(env, h);
-        if (!tenant) return { connected: false };
-        return { connected: true, org: tenant.name, sandbox: tenant.isDemo };
-      } catch (e) {
-        return { connected: false };
-      }
+      const tenant = await xeroTenant(env, h); /* let real errors surface as a plain message, not a silent "not linked" */
+      if (!tenant) return { connected: false };
+      return { connected: true, org: tenant.name, sandbox: tenant.isDemo };
     },
     async fetchRange(env, h, q) {
       const r = await xeroPnl(env, h, q.from, q.to);
@@ -136,13 +132,9 @@ const ADAPTERS = {
     oauth: {},
     async status(env, h) {
       if (!env.POS_API_TOKEN) return { connected: false };
-      try {
-        const t = await squareLocations(env, h);
-        if (!t.locationIds || !t.locationIds.length) return { connected: false };
-        return { connected: true, org: t.locationNames.join(', '), sandbox: false };
-      } catch (e) {
-        return { connected: false };
-      }
+      const t = await squareLocations(env, h); /* let real errors surface as a plain message, not a silent "not linked" */
+      if (!t.locationIds || !t.locationIds.length) return { connected: false };
+      return { connected: true, org: t.locationNames.join(', '), sandbox: false };
     },
     async fetchRange(env, h, q) {
       const count = await squareCompletedCount(env, h, q.from, q.to, q.tz, q.rollover);
@@ -174,13 +166,9 @@ const ADAPTERS = {
     oauth: {},
     async status(env, h) {
       if (!env.ROSTERING_API_TOKEN) return { connected: false };
-      try {
-        const me = await h.fetchJson('https://my.tanda.co/api/v2/users/me', { headers: tandaHeaders(env) }, { auth: false });
-        if (!me || !me.organisation) return { connected: false };
-        return { connected: true, org: me.organisation, sandbox: false };
-      } catch (e) {
-        return { connected: false };
-      }
+      const me = await h.fetchJson('https://my.tanda.co/api/v2/users/me', { headers: tandaHeaders(env) }, { auth: false }); /* let real errors surface as a plain message, not a silent "not linked" */
+      if (!me || !me.organisation) return { connected: false };
+      return { connected: true, org: me.organisation, sandbox: false };
     },
     async fetchRange(env, h, q) {
       const cost = await tandaRosteredCost(env, h, q.from, q.to);
