@@ -226,6 +226,11 @@ async function xeroTenant(env, h) {
 }
 
 const XERO_WAGE_RE = /wages|salaries|superannuation|\bsuper\b|payroll|annual leave|long service|workcover/i;
+/* Confirmed with the owner at reconciliation (2026-07-27): Directors Wages is
+   an owner's draw, not staff labour - keep it out of Wage % and let it fall
+   into Overheads like any other operating expense, even though it matches
+   the wage keyword pattern above. */
+const XERO_WAGE_EXCLUDE_RE = /director/i;
 
 function xeroNum(v) {
   const n = parseFloat(String(v == null ? '' : v).replace(/[,$\s]/g, ''));
@@ -267,7 +272,7 @@ function parseXeroPnl(reportJson) {
       totalOpex += xeroSectionTotal(r);
       xeroWalkLeafRows(r.Rows, (row) => {
         const label = (row.Cells && row.Cells[0] && row.Cells[0].Value) || '';
-        if (XERO_WAGE_RE.test(label)) wagesSuper += xeroNum(row.Cells[row.Cells.length - 1].Value);
+        if (XERO_WAGE_RE.test(label) && !XERO_WAGE_EXCLUDE_RE.test(label)) wagesSuper += xeroNum(row.Cells[row.Cells.length - 1].Value);
       });
     }
   }
