@@ -173,12 +173,34 @@ const ADAPTERS = {
      Example (Deputy): pasted permanent token (secret ROSTERING_API_TOKEN).
   */
   rostering: {
-    configured: false,
-    auth: null,
+    configured: true,
+    auth: 'token',
     oauth: {},
-    async status(env, h) { return { connected: false }; },
-    async fetchRange(env, h, q) { throw new NotConfigured('rostering'); },
-    async fetchMonthly(env, h, q) { return { months: [], cost: [] }; }
+    async status(env, h) {
+      if (!env.ROSTERING_API_TOKEN) return { connected: false };
+      try {
+        const me = await h.fetchJson('https://my.tanda.co/api/v2/users/me', { headers: tandaHeaders(env) }, { auth: false });
+        if (!me || !me.organisation) return { connected: false };
+        return { connected: true, org: me.organisation, sandbox: false };
+      } catch (e) {
+        return { connected: false };
+      }
+    },
+    async fetchRange(env, h, q) {
+      const cost = await tandaRosteredCost(env, h, q.from, q.to);
+      return { cost };
+    },
+    async fetchMonthly(env, h, q) {
+      const months = monthList(q.fromMonth, q.toMonth);
+      const costs = await Promise.all(months.map(async (mo) => {
+        const [y, m] = mo.split('-').map(Number);
+        const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+        try {
+          return await tandaRosteredCost(env, h, mo + '-01', mo + '-' + String(lastDay).padStart(2, '0'));
+        } catch (e) { return null; }
+      }));
+      return { months, cost: costs };
+    }
   }
 };
 
@@ -333,6 +355,28 @@ async function squareCompletedCount(env, h, fromDate, toDate, tz, rolloverHours)
     cursor = json && json.cursor;
   } while (cursor);
   return count;
+}
+
+/* ---------------- Tanda: rostered labour cost (rostering adapter, optional) --
+   Powers the PROJECTED wage % only - the actual Wage % (from Xero) is the
+   real number. from/to on the schedules endpoint can be at most 7 days
+   apart, so a longer range is walked in weekly chunks. */
+
+function tandaHeaders(env) {
+  return { 'Authorization': 'Bearer ' + (env.ROSTERING_API_TOKEN || ''), 'Content-Type': 'application/json' };
+}
+function minDateStr(a, b) { return a < b ? a : b; }
+async function tandaRosteredCost(env, h, fromDate, toDate) {
+  let cost = 0, cur = fromDate;
+  while (cur <= toDate) {
+    const chunkEnd = minDateStr(addDaysToDateStr(cur, 6), toDate);
+    const url = 'https://my.tanda.co/api/v2/schedules?from=' + cur + '&to=' + chunkEnd + '&show_costs=true';
+    const json = await h.fetchJson(url, { headers: tandaHeaders(env) }, { auth: false });
+    const list = Array.isArray(json) ? json : ((json && json.schedules) || []);
+    for (const s of list) if (typeof s.cost === 'number') cost += s.cost;
+    cur = addDaysToDateStr(chunkEnd, 1);
+  }
+  return cost;
 }
 
 const PLAIN_ERRORS = {
