@@ -9,6 +9,14 @@ name = "soakdashboard"          # SET to the GitHub REPO name before first push 
 main = "worker.js"
 compatibility_date = "2026-06-01"
 
+# CRITICAL for a Git-connected (Workers Builds) deploy: without this, every
+# push wipes every secret and variable set in the Cloudflare dashboard
+# (a documented Wrangler behaviour - dashboard vars/secrets are normally
+# treated as scratch state and overwritten by what's in this file, which for
+# secrets is "nothing"). This keeps whatever the owner has saved in Settings
+# -> Variables and Secrets intact across every future push.
+keep_vars = true
+
 # The dashboard page is bundled into the Worker as text.
 rules = [
   { type = "Text", globs = ["**/*.html"], fallthrough = true }
