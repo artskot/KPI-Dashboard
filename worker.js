@@ -133,12 +133,34 @@ const ADAPTERS = {
      connect.squareupsandbox.com.
   */
   pos: {
-    configured: false,
-    auth: null,
+    configured: true,
+    auth: 'token',
     oauth: {},
-    async status(env, h) { return { connected: false }; },
-    async fetchRange(env, h, q) { throw new NotConfigured('pos'); },
-    async fetchMonthly(env, h, q) { throw new NotConfigured('pos'); }
+    async status(env, h) {
+      if (!env.POS_API_TOKEN) return { connected: false };
+      try {
+        const t = await squareLocations(env, h);
+        if (!t.locationIds || !t.locationIds.length) return { connected: false };
+        return { connected: true, org: t.locationNames.join(', '), sandbox: false };
+      } catch (e) {
+        return { connected: false };
+      }
+    },
+    async fetchRange(env, h, q) {
+      const count = await squareCompletedCount(env, h, q.from, q.to, q.tz, q.rollover);
+      return { count };
+    },
+    async fetchMonthly(env, h, q) {
+      const months = monthList(q.fromMonth, q.toMonth);
+      const counts = await Promise.all(months.map(async (mo) => {
+        const [y, m] = mo.split('-').map(Number);
+        const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+        try {
+          return await squareCompletedCount(env, h, mo + '-01', mo + '-' + String(lastDay).padStart(2, '0'), q.tz, q.rollover);
+        } catch (e) { return null; }
+      }));
+      return { months, count: counts };
+    }
   },
 
   /* >>> ADAPTER 3: ROSTERING (optional - only if the owner has one)
@@ -237,6 +259,80 @@ async function xeroPnl(env, h, fromDate, toDate) {
   const url = 'https://api.xero.com/api.xro/2.0/Reports/ProfitAndLoss?fromDate=' + fromDate + '&toDate=' + toDate;
   const reportJson = await h.fetchJson(url, { headers: { 'Xero-Tenant-Id': tenant.id, Accept: 'application/json' } });
   return { ...parseXeroPnl(reportJson), tenant };
+}
+
+/* ---------------- Square: locations + completed-order count (pos adapter) --
+   Never a dollar figure from here - completed transaction count only,
+   voids/cancellations excluded, refunds never reduce the count. */
+
+function squareHeaders(env) {
+  return {
+    'Authorization': 'Bearer ' + (env.POS_API_TOKEN || ''),
+    'Square-Version': '2026-07-15',
+    'Content-Type': 'application/json'
+  };
+}
+/* Cache the seller's active location ids/names in the generic token store
+   (there's no OAuth for Square - this just avoids a /v2/locations call on
+   every request). Cleared by the Connections screen's Disconnect button. */
+async function squareLocations(env, h) {
+  const t = await h.getTokens();
+  if (t && Array.isArray(t.locationIds) && t.locationIds.length) return t;
+  const json = await h.fetchJson('https://connect.squareup.com/v2/locations', { headers: squareHeaders(env) }, { auth: false });
+  const locs = ((json && json.locations) || []).filter((l) => l.status === 'ACTIVE');
+  if (!locs.length) { const e = new Error('no active locations'); e.status = 401; throw e; }
+  const updated = { locationIds: locs.map((l) => l.id), locationNames: locs.map((l) => l.business_name || l.name) };
+  await h.saveTokens(updated);
+  return updated;
+}
+/* Convert a wall-clock local time (date + hour, in an IANA timezone) to the
+   equivalent UTC instant, DST-safe, using the standard double-format trick -
+   no timezone library needed, Workers ships full ICU. */
+function zonedHourToUtcISO(dateStr, hour, tz) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  let guess = Date.UTC(y, m - 1, d, hour, 0, 0);
+  for (let i = 0; i < 2; i++) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }).formatToParts(new Date(guess));
+    const map = {}; parts.forEach((p) => { map[p.type] = p.value; });
+    const asUTC = Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second);
+    guess -= (asUTC - guess);
+  }
+  return new Date(guess).toISOString();
+}
+function addDaysToDateStr(dateStr, days) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+async function squareCompletedCount(env, h, fromDate, toDate, tz, rolloverHours) {
+  const t = await squareLocations(env, h);
+  const startISO = zonedHourToUtcISO(fromDate, rolloverHours || 0, tz || 'Australia/Sydney');
+  const endISO = zonedHourToUtcISO(addDaysToDateStr(toDate, 1), rolloverHours || 0, tz || 'Australia/Sydney');
+  let count = 0, cursor;
+  do {
+    const body = {
+      location_ids: t.locationIds,
+      limit: 1000,
+      return_entries: true,
+      query: {
+        filter: {
+          date_time_filter: { closed_at: { start_at: startISO, end_at: endISO } },
+          state_filter: { states: ['COMPLETED'] }
+        }
+      }
+    };
+    if (cursor) body.cursor = cursor;
+    const json = await h.fetchJson('https://connect.squareup.com/v2/orders/search', {
+      method: 'POST', headers: squareHeaders(env), body: JSON.stringify(body)
+    }, { auth: false });
+    count += ((json && json.order_entries) || []).length;
+    cursor = json && json.cursor;
+  } while (cursor);
+  return count;
 }
 
 const PLAIN_ERRORS = {
