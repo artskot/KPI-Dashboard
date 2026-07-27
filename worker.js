@@ -107,13 +107,11 @@ const ADAPTERS = {
     },
     async fetchMonthly(env, h, q) {
       const months = monthList(q.fromMonth, q.toMonth);
-      const results = await Promise.all(months.map(async (mo) => {
+      const results = await mapWithConcurrency(months, 4, (mo) => {
         const [y, m] = mo.split('-').map(Number);
         const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-        try {
-          return await xeroPnl(env, h, mo + '-01', mo + '-' + String(lastDay).padStart(2, '0'));
-        } catch (e) { return null; }
-      }));
+        return xeroPnl(env, h, mo + '-01', mo + '-' + String(lastDay).padStart(2, '0'));
+      });
       const pick = (k) => results.map((r) => (r ? r[k] : null));
       return { months, revenue: pick('revenue'), cogs: pick('cogs'), wagesSuper: pick('wagesSuper'), overheads: pick('overheads') };
     }
@@ -152,13 +150,11 @@ const ADAPTERS = {
     },
     async fetchMonthly(env, h, q) {
       const months = monthList(q.fromMonth, q.toMonth);
-      const counts = await Promise.all(months.map(async (mo) => {
+      const counts = await mapWithConcurrency(months, 4, (mo) => {
         const [y, m] = mo.split('-').map(Number);
         const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-        try {
-          return await squareCompletedCount(env, h, mo + '-01', mo + '-' + String(lastDay).padStart(2, '0'), q.tz, q.rollover);
-        } catch (e) { return null; }
-      }));
+        return squareCompletedCount(env, h, mo + '-01', mo + '-' + String(lastDay).padStart(2, '0'), q.tz, q.rollover);
+      });
       return { months, count: counts };
     }
   },
@@ -192,13 +188,11 @@ const ADAPTERS = {
     },
     async fetchMonthly(env, h, q) {
       const months = monthList(q.fromMonth, q.toMonth);
-      const costs = await Promise.all(months.map(async (mo) => {
+      const costs = await mapWithConcurrency(months, 3, (mo) => {
         const [y, m] = mo.split('-').map(Number);
         const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-        try {
-          return await tandaRosteredCost(env, h, mo + '-01', mo + '-' + String(lastDay).padStart(2, '0'));
-        } catch (e) { return null; }
-      }));
+        return tandaRosteredCost(env, h, mo + '-01', mo + '-' + String(lastDay).padStart(2, '0'));
+      });
       return { months, cost: costs };
     }
   }
@@ -210,6 +204,23 @@ const ADAPTERS = {
 
 class NotConfigured extends Error {
   constructor(source) { super('not configured: ' + source); this.source = source; }
+}
+
+/* Run fn over items with at most `limit` in flight at once (never all-at-once
+   Promise.all) - trend charts pull up to 24 months per source, and firing
+   that many provider calls in one burst is how you trip a rate limit. Errors
+   per-item resolve to null rather than failing the whole series. */
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const idx = next++;
+      try { results[idx] = await fn(items[idx], idx); } catch (e) { results[idx] = null; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 /* ---------------- Xero: tenant lookup + P&L pull/parse (accounting adapter) --
