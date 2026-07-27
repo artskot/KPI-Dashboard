@@ -274,6 +274,7 @@ var KIT_CONFIG = {
     "revenue",
     "transactions",
     "acs",
+    "inVenueAcs",
     "cogs",
     "wage",
     "overheads",
@@ -355,6 +356,11 @@ var METRIC_DEFS = {
   acs:          { label: 'Average customer spend', fmt: 'money2', needs: ['accounting', 'pos'], goodDir: 'up',
                   def: 'Revenue (' + P.accounting + ', ' + KIT_CONFIG.taxLabel + ') ÷ transactions (' + P.pos + ')',
                   decision: 'Are upsells and pricing working? Move it with specials, bundles and staff prompts.' },
+  inVenueAcs:   { label: 'In-venue average spend (Dampier)', fmt: 'money2', needs: ['pos'], goodDir: 'up',
+                  def: P.pos + ' revenue ÷ ' + P.pos + ' transactions, Soak in Dampier location only. Includes GST ' +
+                       '(a POS figure, not the accounting-verified Revenue above) and excludes catering, which sits ' +
+                       'outside this location in ' + P.accounting + '.',
+                  decision: 'How much are in-venue guests actually spending, separate from catering? A cleaner read on till-level upsells and pricing at Dampier itself.' },
   cogs:         { label: 'Cost of goods', fmt: 'money', dual: true, needs: ['accounting'], goodDir: 'down',
                   def: 'Everything in your Cost of Sales accounts, ' + KIT_CONFIG.taxLabel + ' · from ' + P.accounting,
                   decision: 'Rising as a share of revenue? Check supplier prices, portioning and waste.' },
@@ -593,7 +599,11 @@ function periodValues(slot) {  /* slot: 'cur' | 'prev' | 'yoy' */
     out.wagesSuper = num(acc.wagesSuper);
     out.overheads = num(acc.overheads);
   }
-  if (pos) out.count = num(pos.count);
+  if (pos) {
+    out.count = num(pos.count);
+    out.dampierRevenue = num(pos.dampierRevenue);
+    out.dampierCount = num(pos.dampierCount);
+  }
   if (ros) out.rosteredCost = num(ros.cost);
   return out;
 }
@@ -647,6 +657,11 @@ function metricValue(key, vals) {
     if (vals.revenue == null || vals.count == null) return null;
     if (vals.count === 0) return 'dash';
     return vals.revenue / vals.count;
+  }
+  if (key === 'inVenueAcs') {
+    if (vals.dampierRevenue == null || vals.dampierCount == null) return null;
+    if (vals.dampierCount === 0) return 'dash';
+    return vals.dampierRevenue / vals.dampierCount;
   }
   return null;
 }
@@ -991,6 +1006,10 @@ function trendSeries(key) {
     if (key === 'revenue') return rev;
     if (key === 'transactions') return at(pos.count, i);
     if (key === 'acs') { var c = at(pos.count, i); return (rev == null || c == null || c === 0) ? null : rev / c; }
+    if (key === 'inVenueAcs') {
+      var dr = at(pos.dampierRevenue, i), dc = at(pos.dampierCount, i);
+      return (dr == null || dc == null || dc === 0) ? null : dr / dc;
+    }
     if (rev == null || rev === 0) return null;
     var cg = at(acc.cogs, i), wg = at(acc.wagesSuper, i), oh = at(acc.overheads, i);
     if (key === 'cogs') return (cg == null) ? null : (cg / rev) * 100;

@@ -138,7 +138,17 @@ const ADAPTERS = {
     },
     async fetchRange(env, h, q) {
       const count = await squareCompletedCount(env, h, q.from, q.to, q.tz, q.rollover);
-      return { count };
+      /* Extra (non-core) fields for the owner's added "in-venue average spend"
+         card: Soak in Dampier location only, Square's own revenue (GST-inclusive -
+         this is a deliberate, clearly-labelled deviation from the kit's Xero-only
+         money rule, agreed with the owner 2026-07-27). Never let a failure here
+         break the core transaction count above. */
+      let dampierRevenue = null, dampierCount = null;
+      try {
+        const d = await squareDampierRevenueAndCount(env, h, q.from, q.to, q.tz, q.rollover);
+        dampierRevenue = d.revenue; dampierCount = d.count;
+      } catch (e) { /* leave nulls - card shows "not configured" rather than break */ }
+      return { count, dampierRevenue, dampierCount };
     },
     async fetchMonthly(env, h, q) {
       const months = monthList(q.fromMonth, q.toMonth);
@@ -147,7 +157,16 @@ const ADAPTERS = {
         const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
         return squareCompletedCount(env, h, mo + '-01', mo + '-' + String(lastDay).padStart(2, '0'), q.tz, q.rollover);
       });
-      return { months, count: counts };
+      const dampier = await mapWithConcurrency(months, 4, (mo) => {
+        const [y, m] = mo.split('-').map(Number);
+        const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+        return squareDampierRevenueAndCount(env, h, mo + '-01', mo + '-' + String(lastDay).padStart(2, '0'), q.tz, q.rollover);
+      });
+      return {
+        months, count: counts,
+        dampierRevenue: dampier.map((d) => (d ? d.revenue : null)),
+        dampierCount: dampier.map((d) => (d ? d.count : null))
+      };
     }
   },
 
@@ -359,6 +378,51 @@ async function squareCompletedCount(env, h, fromDate, toDate, tz, rolloverHours)
     cursor = json && json.cursor;
   } while (cursor);
   return count;
+}
+
+/* Owner-requested addition (2026-07-27): an "in-venue average spend" figure
+   scoped to the Soak in Dampier Square location only, using Square's OWN
+   revenue - not Xero. This is a deliberate, clearly-labelled deviation from
+   the locked kpi-spec.md rule that money always comes from the accounting
+   system: the owner wants a POS-only view that excludes catering (which
+   Xero's Revenue includes but this venue's Square location doesn't see).
+   The card built from this is labelled to make clear it's GST-inclusive and
+   POS-sourced, so it's never mistaken for the accounting-verified figures. */
+async function squareDampierLocationId(env, h) {
+  const t = await squareLocations(env, h);
+  const idx = (t.locationNames || []).findIndex((n) => /dampier/i.test(n || ''));
+  return idx >= 0 ? t.locationIds[idx] : null;
+}
+async function squareDampierRevenueAndCount(env, h, fromDate, toDate, tz, rolloverHours) {
+  const locId = await squareDampierLocationId(env, h);
+  if (!locId) return { revenue: null, count: null };
+  const startISO = zonedHourToUtcISO(fromDate, rolloverHours || 0, tz || 'Australia/Sydney');
+  const endISO = zonedHourToUtcISO(addDaysToDateStr(toDate, 1), rolloverHours || 0, tz || 'Australia/Sydney');
+  let revenueCents = 0, count = 0, cursor;
+  do {
+    const body = {
+      location_ids: [locId],
+      limit: 500,
+      return_entries: false, /* need full Order objects for total_money, unlike the core count above */
+      query: {
+        filter: {
+          date_time_filter: { closed_at: { start_at: startISO, end_at: endISO } },
+          state_filter: { states: ['COMPLETED'] }
+        }
+      }
+    };
+    if (cursor) body.cursor = cursor;
+    const json = await h.fetchJson('https://connect.squareup.com/v2/orders/search', {
+      method: 'POST', headers: squareHeaders(env), body: JSON.stringify(body)
+    }, { auth: false });
+    const orders = (json && json.orders) || [];
+    for (const o of orders) {
+      count++;
+      revenueCents += (o.total_money && typeof o.total_money.amount === 'number') ? o.total_money.amount : 0;
+    }
+    cursor = json && json.cursor;
+  } while (cursor);
+  return { revenue: revenueCents / 100, count };
 }
 
 /* ---------------- Tanda: rostered labour cost (rostering adapter, optional) --
