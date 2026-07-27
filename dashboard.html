@@ -357,9 +357,9 @@ var METRIC_DEFS = {
                   def: 'Revenue (' + P.accounting + ', ' + KIT_CONFIG.taxLabel + ') ÷ transactions (' + P.pos + ')',
                   decision: 'Are upsells and pricing working? Move it with specials, bundles and staff prompts.' },
   inVenueAcs:   { label: 'In-venue average spend (Dampier)', fmt: 'money2', needs: ['pos'], goodDir: 'up',
-                  def: P.pos + ' revenue ÷ ' + P.pos + ' transactions, Soak in Dampier location only. Includes GST ' +
-                       '(a POS figure, not the accounting-verified Revenue above) and excludes catering, which sits ' +
-                       'outside this location in ' + P.accounting + '.',
+                  def: P.pos + ' revenue (' + KIT_CONFIG.taxLabel + ') ÷ ' + P.pos + ' transactions, Soak in Dampier ' +
+                       'location only. A POS figure, not the accounting-verified Revenue above, and excludes catering, ' +
+                       'which sits outside this location in ' + P.accounting + '.',
                   decision: 'How much are in-venue guests actually spending, separate from catering? A cleaner read on till-level upsells and pricing at Dampier itself.' },
   cogs:         { label: 'Cost of goods', fmt: 'money', dual: true, needs: ['accounting'], goodDir: 'down',
                   def: 'Everything in your Cost of Sales accounts, ' + KIT_CONFIG.taxLabel + ' · from ' + P.accounting,

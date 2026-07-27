@@ -139,10 +139,10 @@ const ADAPTERS = {
     async fetchRange(env, h, q) {
       const count = await squareCompletedCount(env, h, q.from, q.to, q.tz, q.rollover);
       /* Extra (non-core) fields for the owner's added "in-venue average spend"
-         card: Soak in Dampier location only, Square's own revenue (GST-inclusive -
-         this is a deliberate, clearly-labelled deviation from the kit's Xero-only
-         money rule, agreed with the owner 2026-07-27). Never let a failure here
-         break the core transaction count above. */
+         card: Soak in Dampier location only, Square's own revenue (ex-GST, using
+         Square's per-order tax breakdown) - a deliberate, clearly-labelled
+         deviation from the kit's Xero-only money rule, agreed with the owner
+         2026-07-27. Never let a failure here break the core transaction count. */
       let dampierRevenue = null, dampierCount = null;
       try {
         const d = await squareDampierRevenueAndCount(env, h, q.from, q.to, q.tz, q.rollover);
@@ -418,7 +418,9 @@ async function squareDampierRevenueAndCount(env, h, fromDate, toDate, tz, rollov
     const orders = (json && json.orders) || [];
     for (const o of orders) {
       count++;
-      revenueCents += (o.total_money && typeof o.total_money.amount === 'number') ? o.total_money.amount : 0;
+      const total = (o.total_money && typeof o.total_money.amount === 'number') ? o.total_money.amount : 0;
+      const tax = (o.total_tax_money && typeof o.total_tax_money.amount === 'number') ? o.total_tax_money.amount : 0;
+      revenueCents += total - tax; /* ex-GST, using Square's own per-order tax breakdown rather than a flat rate */
     }
     cursor = json && json.cursor;
   } while (cursor);
