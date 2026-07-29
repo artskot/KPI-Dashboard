@@ -62,15 +62,12 @@ id = "ebf4223ab3734a628f65230d1288cec0"
 # Add). You cannot set it for them - the owner clicks, you guide.
 # ----------------------------------------------------------------------------
 
-# Names the secret bindings this Worker needs (values are never in this file).
-# Alongside keep_vars above, this is what stops a Git-connected deploy from
-# quietly downgrading dashboard-set Secrets to plaintext Variables - without
-# it, Workers Builds has no way of knowing these particular names are meant
-# to stay encrypted, and can flatten them into plain vars on redeploy even
-# with keep_vars = true.
-[secrets]
-required = ["ACCOUNTING_CLIENT_ID", "ACCOUNTING_CLIENT_SECRET", "POS_API_TOKEN", "ROSTERING_API_TOKEN"]
-
+# NOTE: a `[secrets] required = [...]` block was tried here to stop deploys
+# downgrading dashboard Secrets to plaintext Variables, but it coincided with
+# deploys going bad (Connections screen reverting to "not connected" for
+# every source) - reverted until that's understood. keep_vars above is the
+# safe, confirmed-working protection; re-check secret TYPE in the dashboard
+# after any future push as a manual backstop.
 # ----------------------------------------------------------------------------
 # Cron rung (only when an adapter uses scheduledPull to fetch a tool's own
 # export on a schedule). Uncomment and set a sensible cadence:
