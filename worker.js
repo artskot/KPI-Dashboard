@@ -475,7 +475,13 @@ async function noteSync(env, source) {
   await env.TOKENS.put('lastSync:' + source, new Date().toISOString());
 }
 async function lastSync(env, source) {
-  return await env.TOKENS.get('lastSync:' + source);
+  /* A transient KV read hiccup here must never take down the whole status
+     response - degrade to "unknown" instead of throwing. */
+  try {
+    return await env.TOKENS.get('lastSync:' + source);
+  } catch (e) {
+    return null;
+  }
 }
 
 /* Build the POST to an OAuth token endpoint, honouring the adapter's client-auth
@@ -968,8 +974,12 @@ async function apiMetrics(env, url) {
   const force = url.searchParams.get('refresh') === '1';
   let data = null;
   if (!force && env.TOKENS) {
-    const cached = await env.TOKENS.get(cacheKey);
-    if (cached) { try { data = JSON.parse(cached); } catch (e) { data = null; } }
+    /* A transient KV read hiccup here must never take down the whole metrics
+       response - fall through to a fresh fetch instead of throwing. */
+    try {
+      const cached = await env.TOKENS.get(cacheKey);
+      if (cached) { try { data = JSON.parse(cached); } catch (e) { data = null; } }
+    } catch (e) { data = null; }
   }
   if (!data) {
     const periods = {};
@@ -1038,8 +1048,7 @@ function json(obj, status) {
   });
 }
 
-export default {
-  async fetch(request, env) {
+async function router(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -1074,6 +1083,20 @@ export default {
       return json({ error: 'unknown source' }, 400);
     }
     return new Response('Not found', { status: 404 });
+}
+
+export default {
+  /* Top-level safety net: any uncaught error anywhere below (a transient KV
+     hiccup, a provider timeout, anything not already caught closer to its
+     source) returns a clean JSON error instead of crashing the whole
+     request. Without this, one bad call could take down every card on the
+     dashboard with a raw platform error page instead of a plain message. */
+  async fetch(request, env) {
+    try {
+      return await router(request, env);
+    } catch (err) {
+      return json({ error: 'internal', plain: 'Something went wrong loading the dashboard. Try refresh; if it persists, tell your AI.' }, 500);
+    }
   },
 
   /* Cron rung: uncomment [triggers] in wrangler.toml and give any adapter a
