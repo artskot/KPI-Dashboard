@@ -498,7 +498,10 @@ var state = {
 function apiUrl(force) {
   var r = resolvePeriod(state.period, state.customFrom, state.customTo);
   var trendEnd = tradingToday();
-  var trendStart = addMonths(stamp(trendEnd.getUTCFullYear(), trendEnd.getUTCMonth() + 1, 1), -24);
+  /* 12 months, matching the "last 12 months" label - also keeps each request
+     lighter so it stays comfortably under the platform's per-request compute
+     budget instead of pulling twice the history the UI actually shows. */
+  var trendStart = addMonths(stamp(trendEnd.getUTCFullYear(), trendEnd.getUTCMonth() + 1, 1), -12);
   var q = 'cur=' + iso(r.from) + ':' + iso(r.to)
         + '&prev=' + iso(r.prev.from) + ':' + iso(r.prev.to)
         + (r.yoy ? '&yoy=' + iso(r.yoy.from) + ':' + iso(r.yoy.to) : '')
