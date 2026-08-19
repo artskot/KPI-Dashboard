@@ -573,6 +573,12 @@ function fetchData(force) {
     render();
   }).catch(function (err) {
     state.loading = false;
+    /* Clear stale data on failure - otherwise a failed fetch for a NEW period
+       (e.g. switching from "last week" to "last month") leaves the previous
+       period's numbers on screen under the new period's label, which reads
+       as real (wrong) data rather than a failed fetch. Cards fall back to
+       their existing "not configured" state instead. */
+    state.data = null; state.fetchedAt = null;
     state.fetchError = 'The dashboard couldn’t fetch data just now. Check the Connections screen, or try refresh.';
     render();
   });
