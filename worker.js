@@ -950,6 +950,7 @@ async function apiMetrics(env, url) {
   if (!cur) return json({ error: 'bad cur range' }, 400);
   const prev = parseRange(url.searchParams.get('prev'));
   const yoy = parseRange(url.searchParams.get('yoy'));
+  const ytd = parseRange(url.searchParams.get('ytd'));
   const trend = parseMonthRange(url.searchParams.get('trend'));
   const tz = url.searchParams.get('tz') || 'Australia/Sydney';
   const rollover = Math.max(0, Math.min(6, parseInt(url.searchParams.get('rollover') || '0', 10) || 0));
@@ -968,8 +969,8 @@ async function apiMetrics(env, url) {
      the real fetch time even when served from cache. ?refresh=1 forces fresh. */
   const cacheKey = 'metricscache:' + [
     url.searchParams.get('cur') || '', url.searchParams.get('prev') || '',
-    url.searchParams.get('yoy') || '', url.searchParams.get('trend') || '',
-    tz, rollover
+    url.searchParams.get('yoy') || '', url.searchParams.get('ytd') || '',
+    url.searchParams.get('trend') || '', tz, rollover
   ].join('|');
   const force = url.searchParams.get('refresh') === '1';
   let data = null;
@@ -986,6 +987,7 @@ async function apiMetrics(env, url) {
     periods.cur = await fetchSlot(env, { ...base, ...cur });
     periods.prev = prev ? await fetchSlot(env, { ...base, ...prev }) : null;
     periods.yoy = yoy ? await fetchSlot(env, { ...base, ...yoy }) : null;
+    periods.ytd = ytd ? await fetchSlot(env, { ...base, ...ytd }) : null;
 
     let trendOut = null;
     if (trend) {

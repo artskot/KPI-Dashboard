@@ -502,9 +502,14 @@ function apiUrl(force) {
      lighter so it stays comfortably under the platform's per-request compute
      budget instead of pulling twice the history the UI actually shows. */
   var trendStart = addMonths(stamp(trendEnd.getUTCFullYear(), trendEnd.getUTCMonth() + 1, 1), -12);
+  /* Year-to-date: every card also shows "vs year to date" regardless of the
+     selected period, so this is fetched alongside cur/prev/yoy rather than
+     only when the period itself happens to be "This financial year". */
+  var ytdFrom = fyStart(trendEnd);
   var q = 'cur=' + iso(r.from) + ':' + iso(r.to)
         + '&prev=' + iso(r.prev.from) + ':' + iso(r.prev.to)
         + (r.yoy ? '&yoy=' + iso(r.yoy.from) + ':' + iso(r.yoy.to) : '')
+        + '&ytd=' + iso(ytdFrom) + ':' + iso(trendEnd)
         + '&trend=' + monthKey(trendStart) + ':' + monthKey(trendEnd)
         + '&tz=' + encodeURIComponent(SETTINGS.timezone)
         + '&rollover=' + (+SETTINGS.rolloverHour || 0);
@@ -907,8 +912,8 @@ function renderDashboard(root) {
 
   /* Cards */
   var grid = el('div', 'cards');
-  var cur = periodValues('cur'), prev = periodValues('prev'), yoy = periodValues('yoy');
-  CHOSEN.forEach(function (k) { grid.appendChild(metricCard(k, cur, prev, yoy, r)); });
+  var cur = periodValues('cur'), prev = periodValues('prev'), yoy = periodValues('yoy'), ytd = periodValues('ytd');
+  CHOSEN.forEach(function (k) { grid.appendChild(metricCard(k, cur, prev, yoy, ytd, r)); });
   root.appendChild(grid);
 }
 
@@ -917,7 +922,7 @@ function periodLabel() {
   return p ? p.label.replace('…', '') : '';
 }
 
-function metricCard(key, cur, prev, yoy, r) {
+function metricCard(key, cur, prev, yoy, ytd, r) {
   var def = METRIC_DEFS[key];
   var ready = def.needs.every(isConfigured);
   var card = el('div', 'mcard fade-in');
@@ -975,6 +980,16 @@ function metricCard(key, cur, prev, yoy, r) {
       row2.appendChild(el('span', 'cmp-lab', esc(r.yoyLabel)));
       row2.appendChild(cmpVal(cmp2));
       card.appendChild(row2);
+    }
+    /* Year to date, alongside whichever period is selected - skipped when the
+       period selected already IS the financial year to date (comparing it to
+       itself is a no-op). */
+    if (state.period !== 'thisFY') {
+      var cmp3 = compare(key, v, metricValue(key, ytd));
+      var row3 = el('div', 'cmp-row');
+      row3.appendChild(el('span', 'cmp-lab', 'vs year to date'));
+      row3.appendChild(cmpVal(cmp3));
+      card.appendChild(row3);
     }
     card.appendChild(trendBars(key, r));
   }
