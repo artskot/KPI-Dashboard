@@ -144,6 +144,7 @@ body {
 .cmp-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; padding: 3px 0; }
 .cmp-lab { color: var(--muted); font-weight: 300; }
 .cmp-val { font-weight: 500; }
+.cmp-raw { color: var(--muted); font-weight: 400; margin-left: 6px; }
 .good { color: var(--c-green); } .bad { color: var(--c-coral); } .flat { color: var(--muted); }
 .sparkwrap { margin-top: 0.6rem; }
 .spark-cap { font-size: 10px; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 2px; }
@@ -968,27 +969,31 @@ function metricCard(key, cur, prev, yoy, ytd, r) {
     var meter = def.benchmark ? revenueBenchmark(cur) : targetMeter(key, pf);
     if (meter) card.appendChild(meter);
 
-    /* Comparisons */
-    var cmp1 = compare(key, v, metricValue(key, prev));
+    /* Comparisons - each row shows the delta AND the actual figure it's being
+       compared against, e.g. "▲ 12.3%  $261,540". */
+    var prevRaw = metricValue(key, prev);
+    var cmp1 = compare(key, v, prevRaw);
     var row1 = el('div', 'cmp-row');
     row1.appendChild(el('span', 'cmp-lab', esc(r.prevLabel)));
-    row1.appendChild(cmpVal(cmp1));
+    row1.appendChild(cmpValWithFigure(cmp1, prevRaw, key));
     card.appendChild(row1);
     if (r.yoy) {
-      var cmp2 = compare(key, v, metricValue(key, yoy));
+      var yoyRaw = metricValue(key, yoy);
+      var cmp2 = compare(key, v, yoyRaw);
       var row2 = el('div', 'cmp-row');
       row2.appendChild(el('span', 'cmp-lab', esc(r.yoyLabel)));
-      row2.appendChild(cmpVal(cmp2));
+      row2.appendChild(cmpValWithFigure(cmp2, yoyRaw, key));
       card.appendChild(row2);
     }
     /* Year to date, alongside whichever period is selected - skipped when the
        period selected already IS the financial year to date (comparing it to
        itself is a no-op). */
     if (state.period !== 'thisFY') {
-      var cmp3 = compare(key, v, metricValue(key, ytd));
+      var ytdRaw = metricValue(key, ytd);
+      var cmp3 = compare(key, v, ytdRaw);
       var row3 = el('div', 'cmp-row');
       row3.appendChild(el('span', 'cmp-lab', 'vs year to date'));
-      row3.appendChild(cmpVal(cmp3));
+      row3.appendChild(cmpValWithFigure(cmp3, ytdRaw, key));
       card.appendChild(row3);
     }
     card.appendChild(trendBars(key, r));
@@ -1014,6 +1019,18 @@ function cmpVal(cmp) {
   n.className += ' ' + (cmp.good == null ? 'flat' : (cmp.good ? 'good' : 'bad'));
   n.textContent = (cmp.dir === 'up' ? '▲ ' : cmp.dir === 'down' ? '▼ ' : '● ') + cmp.text;
   return n;
+}
+/* Delta (▲12.3%) plus the actual figure being compared against, e.g.
+   "▲ 12.3% $261,540" - so the card shows both the move and the real number. */
+function cmpValWithFigure(cmp, rawValue, key) {
+  var wrap = document.createDocumentFragment();
+  wrap.appendChild(cmpVal(cmp));
+  var figText = fmtValue(key, rawValue);
+  if (figText && figText !== '—') {
+    var f = el('span', 'cmp-raw', figText);
+    wrap.appendChild(f);
+  }
+  return wrap;
 }
 
 /* Trend per metric, in the card's PRIMARY unit: % of revenue for dual metrics,
