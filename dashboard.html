@@ -440,7 +440,7 @@ function resolvePeriod(key, customFrom, customTo) {
     from = ws; to = (key === 'thisWeek') ? today : addDays(ws, 6);
     prev = { from: addDays(from, -7), to: addDays(to, -7) };
     yoy = { from: addDays(from, -364), to: addDays(to, -364) };   /* weekday-aligned */
-    prevLabel = 'vs week before'; yoyLabel = 'vs same week last year';
+    prevLabel = 'last week'; yoyLabel = 'same week last year';
   } else if (key === 'thisMonth' || key === 'lastMonth') {
     var base = (key === 'thisMonth') ? today : addMonths(stamp(today.getUTCFullYear(), today.getUTCMonth() + 1, 1), -1);
     from = stamp(base.getUTCFullYear(), base.getUTCMonth() + 1, 1);
@@ -451,18 +451,18 @@ function resolvePeriod(key, customFrom, customTo) {
     if (key === 'thisMonth') { if (pt.getTime() < pf.getTime()) pt = pf; prev = { from: pf, to: pt }; }
     else prev = { from: pf, to: addDays(from, -1) };
     yoy = { from: addYears(from, -1), to: addYears(to, -1) };
-    prevLabel = 'vs month before'; yoyLabel = 'vs same month last year';
+    prevLabel = 'last month'; yoyLabel = 'same month last year';
   } else if (key === 'thisFY') {
     from = fyStart(today); to = today;
     prev = { from: addYears(from, -1), to: addYears(to, -1) };    /* last FY to the same date */
     yoy = null;
-    prevLabel = 'vs last financial year to the same date'; yoyLabel = null;
+    prevLabel = 'last financial year to date'; yoyLabel = null;
   } else if (key === 'lastFY') {
     var curStart = fyStart(today);
     from = addYears(curStart, -1); to = addDays(curStart, -1);
     prev = { from: addYears(from, -1), to: addDays(from, -1) };
     yoy = null;
-    prevLabel = 'vs the financial year before'; yoyLabel = null;
+    prevLabel = 'financial year before'; yoyLabel = null;
   } else { /* custom */
     if (!customFrom || !customTo) return resolvePeriod('thisWeek');
     from = fromIso(customFrom); to = fromIso(customTo);
@@ -470,7 +470,7 @@ function resolvePeriod(key, customFrom, customTo) {
     var len = Math.round((to.getTime() - from.getTime()) / 86400000) + 1;
     prev = { from: addDays(from, -len), to: addDays(from, -1) };
     yoy = { from: addYears(from, -1), to: addYears(to, -1) };
-    prevLabel = 'vs the ' + len + ' days before'; yoyLabel = 'vs same dates last year';
+    prevLabel = len + ' days before'; yoyLabel = 'same dates last year';
   }
   return { from: from, to: to, prev: prev, yoy: yoy, prevLabel: prevLabel, yoyLabel: yoyLabel };
 }
@@ -992,7 +992,7 @@ function metricCard(key, cur, prev, yoy, ytd, r) {
       var ytdRaw = metricValue(key, ytd);
       var cmp3 = compare(key, v, ytdRaw);
       var row3 = el('div', 'cmp-row');
-      row3.appendChild(el('span', 'cmp-lab', 'vs year to date'));
+      row3.appendChild(el('span', 'cmp-lab', 'year to date'));
       row3.appendChild(cmpValWithFigure(cmp3, ytdRaw, key));
       card.appendChild(row3);
     }
