@@ -451,18 +451,18 @@ function resolvePeriod(key, customFrom, customTo) {
     if (key === 'thisMonth') { if (pt.getTime() < pf.getTime()) pt = pf; prev = { from: pf, to: pt }; }
     else prev = { from: pf, to: addDays(from, -1) };
     yoy = { from: addYears(from, -1), to: addYears(to, -1) };
-    prevLabel = 'last month'; yoyLabel = 'same month last year';
+    prevLabel = 'previous month'; yoyLabel = 'same month last year';
   } else if (key === 'thisFY') {
     from = fyStart(today); to = today;
     prev = { from: addYears(from, -1), to: addYears(to, -1) };    /* last FY to the same date */
     yoy = null;
-    prevLabel = 'last financial year to date'; yoyLabel = null;
+    prevLabel = 'previous year to date'; yoyLabel = null;
   } else if (key === 'lastFY') {
     var curStart = fyStart(today);
     from = addYears(curStart, -1); to = addDays(curStart, -1);
     prev = { from: addYears(from, -1), to: addDays(from, -1) };
     yoy = null;
-    prevLabel = 'financial year before'; yoyLabel = null;
+    prevLabel = 'previous year'; yoyLabel = null;
   } else { /* custom */
     if (!customFrom || !customTo) return resolvePeriod('thisWeek');
     from = fromIso(customFrom); to = fromIso(customTo);
@@ -698,7 +698,10 @@ function fmtValue(key, v) {
   if (f === 'pct') return v.toFixed(1) + '%';
   return '' + v;
 }
-/* Comparison: % change for money/count, percentage-point change for ratios */
+/* Comparison: % change for money/count, percentage-point change for ratios.
+   (Currently unused by the cards themselves - kept in case a future view
+   wants a delta - the cards show each period's own standalone figure via
+   rawFigureRow below, per the owner's preference.) */
 function compare(key, cur, base) {
   if (cur == null || base == null || cur === 'dash' || base === 'dash') return null;
   var dir, text;
@@ -969,33 +972,14 @@ function metricCard(key, cur, prev, yoy, ytd, r) {
     var meter = def.benchmark ? revenueBenchmark(cur) : targetMeter(key, pf);
     if (meter) card.appendChild(meter);
 
-    /* Comparisons - each row shows the delta AND the actual figure it's being
-       compared against, e.g. "▲ 12.3%  $261,540". */
-    var prevRaw = metricValue(key, prev);
-    var cmp1 = compare(key, v, prevRaw);
-    var row1 = el('div', 'cmp-row');
-    row1.appendChild(el('span', 'cmp-lab', esc(r.prevLabel)));
-    row1.appendChild(cmpValWithFigure(cmp1, prevRaw, key));
-    card.appendChild(row1);
-    if (r.yoy) {
-      var yoyRaw = metricValue(key, yoy);
-      var cmp2 = compare(key, v, yoyRaw);
-      var row2 = el('div', 'cmp-row');
-      row2.appendChild(el('span', 'cmp-lab', esc(r.yoyLabel)));
-      row2.appendChild(cmpValWithFigure(cmp2, yoyRaw, key));
-      card.appendChild(row2);
-    }
-    /* Year to date, alongside whichever period is selected - skipped when the
-       period selected already IS the financial year to date (comparing it to
-       itself is a no-op). */
-    if (state.period !== 'thisFY') {
-      var ytdRaw = metricValue(key, ytd);
-      var cmp3 = compare(key, v, ytdRaw);
-      var row3 = el('div', 'cmp-row');
-      row3.appendChild(el('span', 'cmp-lab', 'year to date'));
-      row3.appendChild(cmpValWithFigure(cmp3, ytdRaw, key));
-      card.appendChild(row3);
-    }
+    /* Reference figures - the actual percentage/dollar figure for each other
+       period, standing alone. No arrows, no delta against the current period
+       - just what that period's own numbers were. Uniform across every
+       period the owner picks: whichever period is selected, its equivalent
+       "one before", "same time last year" and "year to date" all show here. */
+    card.appendChild(rawFigureRow(esc(r.prevLabel), prev, key));
+    if (r.yoy) card.appendChild(rawFigureRow(esc(r.yoyLabel), yoy, key));
+    if (state.period !== 'thisFY') card.appendChild(rawFigureRow('year to date', ytd, key));
     card.appendChild(trendBars(key, r));
   }
 
@@ -1013,24 +997,30 @@ function sourceName(key) {
   var s = SOURCES.filter(function (x) { return x.key === key; })[0];
   return s ? s.name : key;
 }
-function cmpVal(cmp) {
-  var n = el('span', 'cmp-val');
-  if (!cmp) { n.className += ' flat'; n.textContent = 'no data yet'; return n; }
-  n.className += ' ' + (cmp.good == null ? 'flat' : (cmp.good ? 'good' : 'bad'));
-  n.textContent = (cmp.dir === 'up' ? '▲ ' : cmp.dir === 'down' ? '▼ ' : '● ') + cmp.text;
-  return n;
-}
-/* Delta (▲12.3%) plus the actual figure being compared against, e.g.
-   "▲ 12.3% $261,540" - so the card shows both the move and the real number. */
-function cmpValWithFigure(cmp, rawValue, key) {
-  var wrap = document.createDocumentFragment();
-  wrap.appendChild(cmpVal(cmp));
-  var figText = fmtValue(key, rawValue);
-  if (figText && figText !== '—') {
-    var f = el('span', 'cmp-raw', figText);
-    wrap.appendChild(f);
+/* A reference period's own figure, standing alone - no arrow, no delta
+   against the current period. Dual metrics (cogs/wage/overheads/profit) show
+   both their percentage and dollar figure, same as the main headline does;
+   simple metrics show their one value. */
+function rawFigureRow(label, vals, key) {
+  var row = el('div', 'cmp-row');
+  row.appendChild(el('span', 'cmp-lab', label));
+  var val = el('span', 'cmp-val');
+  var hasData = vals && Object.keys(vals).length > 0;
+  if (!hasData) {
+    val.className += ' flat';
+    val.textContent = 'no data yet';
+  } else if (METRIC_DEFS[key].dual) {
+    var pct = sharePct(key, vals);
+    var dollars = shareDollars(key, vals);
+    if (pct == null) { val.className += ' flat'; val.textContent = 'no data yet'; }
+    else val.textContent = fmtPctVal(pct) + (dollars == null ? '' : '  ' + fmtMoney(dollars, false));
+  } else {
+    var v = metricValue(key, vals);
+    if (v == null) { val.className += ' flat'; val.textContent = 'no data yet'; }
+    else val.textContent = fmtValue(key, v);
   }
-  return wrap;
+  row.appendChild(val);
+  return row;
 }
 
 /* Trend per metric, in the card's PRIMARY unit: % of revenue for dual metrics,
